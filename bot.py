@@ -41,7 +41,7 @@ AI_STATUS = "Вимкнено"
 if GROQ_LIB_OK and AI_KEY:
     try:
         client = Groq(api_key=AI_KEY)
-        AI_STATUS = "✅ Groq (Llama 3)"
+        AI_STATUS = "✅ Groq (Llama 3.3 Versatile)"
     except Exception as e:
         AI_STATUS = f"❌ Помилка ключа: {e}"
 else:
@@ -66,7 +66,7 @@ kb = ReplyKeyboardMarkup(
 async def cmd_start(message: types.Message):
     if PROMETHEUS_AVAILABLE:
         COMMAND_COUNTER.labels(command_type='start').inc()
-    await message.answer(f"Я піднявся! 🧟‍♂️\nСтатус AI: {AI_STATUS}", reply_markup=kb)
+    await message.answer(f"Я оновився до Llama 3.3! 🚀\nСтатус AI: {AI_STATUS}", reply_markup=kb)
 
 @dp.message(F.text == "🌦 Погода Брусилів")
 async def weather_handler(message: types.Message):
@@ -94,10 +94,10 @@ async def ai_chat(message: types.Message):
     
     start_time = time.time()
     try:
-        # 1. ЗАПИТ
+        # 1. ЗАПИТ (ОНОВЛЕНА МОДЕЛЬ)
         chat_completion = client.chat.completions.create(
             messages=[{"role": "user", "content": message.text}],
-            model="llama3-8b-8192", 
+            model="llama-3.3-70b-versatile", 
         )
         response_text = chat_completion.choices[0].message.content
         
@@ -109,7 +109,6 @@ async def ai_chat(message: types.Message):
         await message.answer(response_text)
 
     except Exception as e:
-        # 4. ОБРОБКА ПОМИЛКИ
         if PROMETHEUS_AVAILABLE:
             ERROR_COUNTER.labels(error_type='groq_error').inc()
         await message.answer(f"🤯 Помилка запиту до Groq: {e}")
