@@ -3,7 +3,7 @@ import logging
 import os
 import time
 import requests
-from groq import Groq  # <--- НОВИЙ МОЗОК
+from groq import Groq
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters.command import Command
@@ -20,7 +20,9 @@ except ImportError:
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
 WEATHER_KEY = os.getenv("WEATHER_API_KEY")
-GROQ_KEY = os.getenv("GROQ_API_KEY")
+
+# 👇 ТУТ Я ЗМІНИВ НАЗВУ: ТЕПЕР ВІН ШУКАЄ "AI_KEY"
+GROQ_KEY = os.getenv("AI_KEY") 
 
 # --- 2. МЕТРИКИ ---
 if PROMETHEUS_AVAILABLE:
@@ -33,11 +35,11 @@ client = None
 if GROQ_KEY:
     try:
         client = Groq(api_key=GROQ_KEY)
-        print("✅ Groq (Llama 3) підключено успішно!")
+        print("✅ Groq (Llama 3) підключено через AI_KEY!")
     except Exception as e:
-        print(f"❌ Помилка ключа Groq: {e}")
+        print(f"❌ Помилка ключа AI_KEY: {e}")
 else:
-    print("❌ Немає GROQ_API_KEY в .env!")
+    print("❌ ЗМІННА 'AI_KEY' НЕ ЗНАЙДЕНА В .env!")
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
@@ -52,7 +54,7 @@ kb = ReplyKeyboardMarkup(
 async def cmd_start(message: types.Message):
     if PROMETHEUS_AVAILABLE:
         COMMAND_COUNTER.labels(command_type='start').inc()
-    await message.answer("Я змінив мозок на Llama 3 (через Groq). Тепер я літаю! 🚀", reply_markup=kb)
+    await message.answer("Llama 3 на зв'язку! 🚀", reply_markup=kb)
 
 @dp.message(F.text == "🌦 Погода Брусилів")
 async def weather_handler(message: types.Message):
@@ -73,7 +75,7 @@ async def ai_chat(message: types.Message):
         COMMAND_COUNTER.labels(command_type='ai_chat').inc()
 
     if not client:
-        await message.answer("❌ AI не налаштовано (немає ключа).")
+        await message.answer("❌ AI_KEY не знайдено або не працює.")
         return
 
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
@@ -88,27 +90,10 @@ async def ai_chat(message: types.Message):
                     "content": message.text,
                 }
             ],
-            model="llama3-8b-8192", # Дуже швидка і розумна модель
+            model="llama3-8b-8192", 
         )
         
         response_text = chat_completion.choices[0].message.content
 
         if PROMETHEUS_AVAILABLE:
             AI_LATENCY.observe(time.time() - start_time)
-        
-        await message.answer(response_text)
-        
-    except Exception as e:
-        if PROMETHEUS_AVAILABLE:
-            ERROR_COUNTER.labels(error_type='groq_error').inc()
-        await message.answer(f"🤯 Помилка Groq: {e}")
-
-async def main():
-    if PROMETHEUS_AVAILABLE:
-        start_http_server(8000)
-        logging.info("🔥 Metrics server running on port 8000")
-        
-    await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
