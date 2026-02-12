@@ -19,7 +19,7 @@ model = None
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
     # Використовуємо швидку і розумну модель
-    model = genai.GenerativeModel('gemini-pro')
+    model = genai.GenerativeModel('gemini-1.5-flash')
 
 # 3. Налаштовуємо Бота
 logging.basicConfig(level=logging.INFO)
