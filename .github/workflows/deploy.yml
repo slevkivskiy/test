@@ -34,6 +34,8 @@ jobs:
           echo "ADMIN_ID=${{ secrets.ADMIN_ID }}" >> .env
           echo "WEATHER_API_KEY=${{ secrets.WEATHER_API_KEY }}" >> .env
           echo "GEMINI_API_KEY=${{ secrets.GEMINI_KEY }}" >> .env
+          echo "DB_USER=${{secrets.DB_USER}}" >> .env
+          echo "DB_PASSWORD=${{secrets.DB_PASSWORD}}" >> .env
           
           # 4. Перезбираємо з "силовим" оновленням
           # --force-recreate змушує Docker побачити новий .env
