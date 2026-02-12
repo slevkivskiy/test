@@ -21,11 +21,20 @@ jobs:
         key: ${{ secrets.KEY }}
         port: 22
         script: |
-          # 1. Заходимо в папку (УВАГА: перевір назву папки!)
-          cd test 
+          # 1. Заходимо в папку
+          cd test
           
-          # 2. Стягуємо новий код
+          # 2. Стягуємо код
           git pull origin main
           
-          # 3. Перезбираємо і перезапускаємо
-          docker compose up -d --build
+          # 3. 🔥 МАГІЯ: Створюємо .env файл прямо тут!
+          # Ми беремо секрети з GitHub і кладемо їх у файл на сервері.
+          
+          echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" > .env
+          echo "ADMIN_ID=${{ secrets.ADMIN_ID }}" >> .env
+          echo "WEATHER_API_KEY=${{ secrets.WEATHER_API_KEY }}" >> .env
+          echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> .env
+          
+          # 4. Перезбираємо з "силовим" оновленням
+          # --force-recreate змушує Docker побачити новий .env
+          docker compose up -d --build --force-recreate

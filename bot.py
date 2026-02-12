@@ -1,67 +1,85 @@
 import asyncio
 import logging
 import os
-import requests  # Щоб ходити в інтернет
+import requests
+import google.generativeai as genai
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters.command import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-# 1. Завантажуємо секрети
+# 1. Завантажуємо змінні
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
 WEATHER_KEY = os.getenv("WEATHER_API_KEY")
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 
-# 2. Перевірка
-if not TOKEN:
-    exit("Error: BOT_TOKEN not found!")
+# 2. Налаштовуємо Gemini (якщо є ключ)
+model = None
+if GEMINI_KEY:
+    genai.configure(api_key=GEMINI_KEY)
+    # Використовуємо швидку і розумну модель
+    model = genai.GenerativeModel('gemini-1.5-flash')
 
-# 3. Налаштування
+# 3. Налаштовуємо Бота
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# --- КЛАВІАТУРА (КНОПКИ) ---
+# --- КЛАВІАТУРА ---
 kb = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="🌦 Погода Брусилів")],
-        [KeyboardButton(text="💵 Курс Долара (Скоро)")]
+        [KeyboardButton(text="💀 Знищити сервер (Жарт)")]
     ],
     resize_keyboard=True
 )
 
-# --- ФУНКЦІЯ ПОГОДИ ---
-def get_weather(city="Brusyliv"):
-    try:
-        url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={WEATHER_KEY}&units=metric&lang=ua"
-        res = requests.get(url).json()
-        
-        temp = res["main"]["temp"]
-        desc = res["weather"][0]["description"]
-        wind = res["wind"]["speed"]
-        
-        return f"Погода в {city}:\n🌡 Температура: {temp}°C\n☁️ Небо: {desc}\n💨 Вітер: {wind} м/с"
-    except Exception as e:
-        return "⚠️ Не можу отримати погоду. Перевір API ключ."
-
-# --- ОБРОБНИКИ (HANDLERS) ---
-
+# --- КОМАНДИ ---
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     await message.answer(
-        "Привіт, Саня! Я тепер розумний бот. 🤖\nТисни кнопки знизу!", 
+        "Привіт! Я DevOps-бот з мізками Gemini! 🤖\n"
+        "Тисни кнопки або просто запитай мене про щось (наприклад, 'Як підняти Docker?').", 
         reply_markup=kb
     )
 
+# --- ПОГОДА ---
 @dp.message(F.text == "🌦 Погода Брусилів")
 async def weather_handler(message: types.Message):
-    await message.answer("Секунду, дивлюсь у вікно... 🔭")
-    report = get_weather("Brusyliv")
-    await message.answer(report)
+    if not WEATHER_KEY:
+        await message.answer("❌ Немає ключа погоди!")
+        return
+        
+    try:
+        url = f"http://api.openweathermap.org/data/2.5/weather?q=Brusyliv&appid={WEATHER_KEY}&units=metric&lang=ua"
+        data = requests.get(url).json()
+        temp = data["main"]["temp"]
+        desc = data["weather"][0]["description"]
+        await message.answer(f"Погода в Брусилові:\n🌡 {temp}°C, {desc}")
+    except:
+        await message.answer("⚠️ Не можу отримати погоду.")
 
+# --- GEMINI AI (Обробляє все інше) ---
 @dp.message()
-async def echo_handler(message: types.Message):
-    await message.answer("Я поки розумію тільки кнопки! 👇", reply_markup=kb)
+async def chat_handler(message: types.Message):
+    # 1. Перевірка наявності мізків
+    if not model:
+        await message.answer("🧠 Я забув свій API ключ вдома. Перевір .env!")
+        return
+
+    # 2. Показуємо статус "друкує..."
+    await bot.send_chat_action(chat_id=message.chat.id, action="typing")
+
+    try:
+        # 3. Питаємо Gemini
+        response = model.generate_content(message.text)
+        
+        # 4. Відправляємо відповідь (Markdown для красивого коду)
+        await message.answer(response.text, parse_mode="Markdown")
+        
+    except Exception as e:
+        await message.answer(f"🤯 У мене закипіли мізки: {e}")
 
 # --- ЗАПУСК ---
 async def main():
