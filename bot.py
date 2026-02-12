@@ -1,64 +1,46 @@
 import asyncio
 import logging
 import os
-import time  # <--- Додав для вимірювання часу
+import time
 import requests
 import google.generativeai as genai
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters.command import Command
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
-# --- МЕТРИКИ ---
-from prometheus_client import start_http_server, Counter, Summary
+# Спроба імпорту метрик
+try:
+    from prometheus_client import start_http_server, Counter, Summary
+    PROMETHEUS_AVAILABLE = True
+except ImportError:
+    PROMETHEUS_AVAILABLE = False
 
-# 1. Завантаження
+# --- 1. КОНФІГ ---
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
 WEATHER_KEY = os.getenv("WEATHER_API_KEY")
 GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 
-# --- ВИЗНАЧЕННЯ МЕТРИК ---
-# Лічильник усіх команд (розбиваємо по типах: start, weather, ai)
-COMMAND_COUNTER = Counter('bot_commands_total', 'Total commands', ['command_type'])
-# Лічильник помилок
-ERROR_COUNTER = Counter('bot_errors_total', 'Total errors', ['error_type'])
-# Час відповіді AI
-AI_LATENCY = Summary('bot_ai_latency_seconds', 'Time spent processing AI request')
-# Час відповіді Погоди
-WEATHER_LATENCY = Summary('bot_weather_latency_seconds', 'Time spent fetching weather')
+# --- 2. МЕТРИКИ ---
+if PROMETHEUS_AVAILABLE:
+    # Лічильники
+    COMMAND_COUNTER = Counter('bot_commands_total', 'Total commands', ['command_type'])
+    ERROR_COUNTER = Counter('bot_errors_total', 'Total errors', ['error_type'])
+    # Таймери
+    AI_LATENCY = Summary('bot_ai_latency_seconds', 'AI processing time')
+    WEATHER_LATENCY = Summary('bot_weather_latency_seconds', 'Weather fetch time')
 
-
-# 2. Налаштування AI з АВТОПОШУКОМ МОДЕЛІ (Твій робочий код)
+# --- 3. НАЛАШТУВАННЯ AI (FIXED) ---
 model = None
 if GEMINI_KEY:
     try:
         genai.configure(api_key=GEMINI_KEY)
-        
-        # --- ДІАГНОСТИКА ---
-        print("🔍 ШУКАЮ ДОСТУПНІ МОДЕЛІ...")
-        available_models = []
-        for m in genai.list_models():
-            if 'generateContent' in m.supported_generation_methods:
-                available_models.append(m.name)
-        
-        print(f"📋 СПИСОК МОДЕЛЕЙ: {available_models}")
-
-        if available_models:
-            selected_model = available_models[0]
-            for m in available_models:
-                if 'flash' in m:
-                    selected_model = m
-                    break
-            
-            print(f"✅ ОБРАНО МОДЕЛЬ: {selected_model}")
-            model = genai.GenerativeModel(selected_model)
-        else:
-            print("❌ НЕМАЄ ДОСТУПНИХ МОДЕЛЕЙ ДЛЯ ЦЬОГО КЛЮЧА!")
-            
+        # ⚠️ ЖОРСТКО СТАВИМО 1.5-FLASH (Вона стабільна і має великі ліміти)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        print("✅ AI підключено: gemini-1.5-flash")
     except Exception as e:
-        print(f"❌ ПОМИЛКА ПІДКЛЮЧЕННЯ AI: {e}")
+        print(f"⚠️ AI Init Error: {e}")
 
-# 3. Бот
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -68,63 +50,68 @@ kb = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
+# --- 4. ОБРОБНИКИ ---
+
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    # Метрика: хтось натиснув старт
-    COMMAND_COUNTER.labels(command_type='start').inc()
-    await message.answer("Я живий! 🤖\nПиши мені, я спробую відповісти.", reply_markup=kb)
+    if PROMETHEUS_AVAILABLE:
+        COMMAND_COUNTER.labels(command_type='start').inc()
+    await message.answer("Ліміти пофікшено. Працюємо далі! 🚀", reply_markup=kb)
 
 @dp.message(F.text == "🌦 Погода Брусилів")
 async def weather_handler(message: types.Message):
-    # Метрика: запит погоди
-    COMMAND_COUNTER.labels(command_type='weather').inc()
+    if PROMETHEUS_AVAILABLE:
+        COMMAND_COUNTER.labels(command_type='weather').inc()
     
-    start_time = time.time() # ⏱ Засікаємо час
+    start_time = time.time()
     try:
         url = f"http://api.openweathermap.org/data/2.5/weather?q=Brusyliv&appid={WEATHER_KEY}&units=metric&lang=ua"
         data = requests.get(url).json()
         
-        # Метрика: скільки часу це зайняло
-        duration = time.time() - start_time
-        WEATHER_LATENCY.observe(duration)
-
+        if PROMETHEUS_AVAILABLE:
+            WEATHER_LATENCY.observe(time.time() - start_time)
+        
         temp = data["main"]["temp"]
-        await message.answer(f"Температура: {temp}°C")
+        await message.answer(f"🌡 Температура: {temp}°C")
     except Exception as e:
-        # Метрика: помилка
-        ERROR_COUNTER.labels(error_type='weather').inc()
-        await message.answer("Помилка погоди.")
+        if PROMETHEUS_AVAILABLE:
+            ERROR_COUNTER.labels(error_type='weather_api').inc()
+        await message.answer(f"⚠️ Помилка погоди: {e}")
 
 @dp.message()
 async def ai_chat(message: types.Message):
-    # Метрика: пишуть в AI
-    COMMAND_COUNTER.labels(command_type='ai_chat').inc()
+    if PROMETHEUS_AVAILABLE:
+        COMMAND_COUNTER.labels(command_type='ai_chat').inc()
 
     if not model:
-        await message.answer("⚠️ Мої мізки не працюють. Адмін, дивись логи!")
+        await message.answer("❌ AI вимкнено.")
         return
 
     await bot.send_chat_action(chat_id=message.chat.id, action="typing")
     
-    start_time = time.time() # ⏱ Засікаємо час
+    start_time = time.time()
     try:
         response = model.generate_content(message.text)
         
-        # Метрика: скільки думав AI
-        duration = time.time() - start_time
-        AI_LATENCY.observe(duration)
-
-        await message.answer(response.text, parse_mode="Markdown")
+        if PROMETHEUS_AVAILABLE:
+            AI_LATENCY.observe(time.time() - start_time)
+        
+        await message.answer(response.text)
+        
     except Exception as e:
-        # Метрика: помилка AI
-        ERROR_COUNTER.labels(error_type='ai_error').inc()
-        await message.answer(f"Помилка: {e}")
+        if PROMETHEUS_AVAILABLE:
+            ERROR_COUNTER.labels(error_type='ai_limit').inc()
+        # Якщо знову 429 - пишемо зрозуміло
+        if "429" in str(e):
+            await message.answer("⏳ Ой, я перегрівся (Ліміт запитів). Почекай 10 секунд.")
+        else:
+            await message.answer(f"Error: {e}")
 
 async def main():
-    # 🔥 ЗАПУСК СЕРВЕРА МЕТРИК (Порт 8000)
-    start_http_server(8000)
-    print("📈 Metrics server running on port 8000")
-    
+    if PROMETHEUS_AVAILABLE:
+        start_http_server(8000)
+        logging.info("🔥 Metrics server running on port 8000")
+        
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
