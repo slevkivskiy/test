@@ -12,7 +12,7 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 load_dotenv()
 TOKEN = os.getenv("BOT_TOKEN")
 WEATHER_KEY = os.getenv("WEATHER_API_KEY")
-GEMINI_KEY = os.getenv("GEMINI_KEY")
+GEMINI_KEY = os.getenv("GEMINI_API_KEY")
 
 # 2. Налаштування AI з АВТОПОШУКОМ МОДЕЛІ
 model = None
