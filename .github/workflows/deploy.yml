@@ -33,7 +33,7 @@ jobs:
           echo "BOT_TOKEN=${{ secrets.BOT_TOKEN }}" > .env
           echo "ADMIN_ID=${{ secrets.ADMIN_ID }}" >> .env
           echo "WEATHER_API_KEY=${{ secrets.WEATHER_API_KEY }}" >> .env
-          echo "GEMINI_API_KEY=${{ secrets.GEMINI_KEY }}" >> .env
+          echo "AI_KEY=${{ secrets.AI_KEY }}" >> .env
           echo "DB_USER=${{secrets.DB_USER}}" >> .env
           echo "DB_PASSWORD=${{secrets.DB_PASSWORD}}" >> .env
           
