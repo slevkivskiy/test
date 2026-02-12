@@ -1,0 +1,31 @@
+name: Deploy to AWS
+
+on:
+  push:
+    branches:
+      - main  # Спрацьовує, коли ти пушиш в main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Deploy via SSH
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.HOST }}
+        username: ${{ secrets.USERNAME }}
+        key: ${{ secrets.KEY }}
+        port: 22
+        script: |
+          # 1. Заходимо в папку (УВАГА: перевір назву папки!)
+          cd test 
+          
+          # 2. Стягуємо новий код
+          git pull origin main
+          
+          # 3. Перезбираємо і перезапускаємо
+          docker compose up -d --build
