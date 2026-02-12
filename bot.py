@@ -21,7 +21,7 @@ dp = Dispatcher()
 # 4. Реакція на /start
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    await message.answer("Привіт! Я живий! 🚀\nЯ працюю в Docker на AWS.")
+    await message.answer("Привіт! Я живий! 🚀\nЯ працюю в Docker на AWS.\nЯ оновився САМ через GitHub Actions! 😎")
 
 # 5. Ехо (повторює текст)
 @dp.message()
