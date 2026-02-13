@@ -1,4 +1,4 @@
-ervices:
+services:
   # 🤖 Твій Бот
   bot:
     build: .
