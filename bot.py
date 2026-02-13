@@ -113,7 +113,7 @@ async def weather_handler(message: types.Message):
         data = requests.get(url).json()
         temp = data["main"]["temp"]
         desc = data["weather"][0]["description"]
-        await message.answer(f"🌡 Температура: {temp}°C\n☁️ {desc.capitalize()}")
+        await message.answer(f"🌡 Температура зараз: {temp}°C\n☁️ {desc.capitalize()}")
     except Exception as e:
         await message.answer(f"⚠️ Помилка погоди: {e}")
 
