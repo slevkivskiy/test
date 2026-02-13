@@ -39,7 +39,7 @@ jobs:
           port: 22
           script: |
             # Переходимо в папку (встав свій шлях, якщо він інший)
-            cd /root/my-bot-folder
+            cd /home/ubuntu/test
             
             # Оновлюємо код
             git pull origin main
