@@ -1,0 +1,52 @@
+name: 🔄 CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  # ЕТАП 1: Перевірка коду 🧪
+  tests:
+    name: 🐍 Syntax Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+          
+      - name: Install dependencies
+        run: |
+          pip install aiogram requests python-dotenv groq prometheus-client
+          
+      - name: Check Syntax
+        run: python -m py_compile bot.py
+
+  # ЕТАП 2: Деплой (Запускається ТІЛЬКИ якщо tests пройшов успішно) 🚀
+  deploy:
+    name: 🚀 Deploy to AWS
+    needs: tests  # <--- ОСЬ ЦЯ МАГІЯ ЗВ'ЯЗУЄ ДВА КРУЖЕЧКИ
+    runs-on: ubuntu-latest
+    steps:
+      - name: Connect and Update
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.KEY }}
+          port: 22
+          script: |
+            # Переходимо в папку (встав свій шлях, якщо він інший)
+            cd /root/my-bot-folder
+            
+            # Оновлюємо код
+            git pull origin main
+            
+            # Перезбираємо
+            docker compose down
+            docker compose up -d --build --remove-orphans
+            
+            # Чистимо сміття
+            docker image prune -f
