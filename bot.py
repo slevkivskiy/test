@@ -2,7 +2,8 @@ import asyncio
 import logging
 import os
 import time
-import asyncpg  # <--- НОВА БІБЛІОТЕКА ДЛЯ БАЗИ
+import requests # <--- ЦЕ ТРЕБА ДЛЯ ПОГОДИ
+import asyncpg
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters.command import Command
@@ -77,8 +78,6 @@ async def save_user(user: types.User):
     if not db_pool: return
     try:
         async with db_pool.acquire() as connection:
-            # "INSERT ... ON CONFLICT DO NOTHING" означає:
-            # "Запиши юзера, але якщо він вже є — не викидай помилку, просто пропусти".
             await connection.execute('''
                 INSERT INTO users (telegram_id, username) 
                 VALUES ($1, $2) 
@@ -99,16 +98,24 @@ kb = ReplyKeyboardMarkup(
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    await save_user(message.from_user)  # <--- ЗБЕРІГАЄМО ЮЗЕРА!
+    await save_user(message.from_user)
     if PROMETHEUS_AVAILABLE: COMMAND_COUNTER.labels(command_type='start').inc()
     await message.answer(f"Привіт! Я записую тебе в базу... 📝\nГотовий до роботи!", reply_markup=kb)
 
+# --- ОСЬ ТУТ Я ПОВЕРНУВ ЛОГІКУ ПОГОДИ ---
 @dp.message(F.text == "🌦 Погода Брусилів")
 async def weather_handler(message: types.Message):
     await save_user(message.from_user)
     if PROMETHEUS_AVAILABLE: COMMAND_COUNTER.labels(command_type='weather').inc()
-    # (Тут скорочений код погоди для економії місця, встав свій requests якщо треба)
-    await message.answer("☁️ Погода оновлюється...")
+    
+    try:
+        url = f"http://api.openweathermap.org/data/2.5/weather?q=Brusyliv&appid={WEATHER_KEY}&units=metric&lang=ua"
+        data = requests.get(url).json()
+        temp = data["main"]["temp"]
+        desc = data["weather"][0]["description"]
+        await message.answer(f"🌡 Температура: {temp}°C\n☁️ {desc.capitalize()}")
+    except Exception as e:
+        await message.answer(f"⚠️ Помилка погоди: {e}")
 
 @dp.message()
 async def ai_chat(message: types.Message):
@@ -121,7 +128,10 @@ async def ai_chat(message: types.Message):
 
     try:
         chat_completion = client.chat.completions.create(
-            messages=[{"role": "user", "content": message.text}],
+            messages=[
+                {"role": "system", "content": "Ти корисний помічник. Відповідай українською."},
+                {"role": "user", "content": message.text}
+            ],
             model=MODEL_NAME,
             temperature=0.3
         )
