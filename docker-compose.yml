@@ -81,6 +81,20 @@ services:
       - monitoring
     depends_on:
       - db
+      
+  nginx:
+    image: nginx:latest
+    container_name: nginx-proxy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf:/etc/nginx/conf.d
+      - ./nginx/certs:/etc/letsencrypt
+      - ./nginx/www:/var/www/html
+    networks:
+      - monitoring
 
 volumes:
   postgres_data:
