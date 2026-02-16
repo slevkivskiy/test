@@ -1,6 +1,6 @@
 aiogram
 python-dotenv
-requests
+aiohttp
 groq
 prometheus-client
 asyncpg

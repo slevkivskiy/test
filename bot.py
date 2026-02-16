@@ -1,20 +1,24 @@
 import asyncio
 import logging
 import os
-import time
-import requests # <--- ЦЕ ТРЕБА ДЛЯ ПОГОДИ
-import asyncpg
-from dotenv import load_dotenv
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters.command import Command
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+import sys
+from dataclasses import dataclass
+from typing import Optional
 
-# --- 1. БЕЗПЕЧНІ ІМПОРТИ ---
+# Замінили requests на aiohttp (щоб бот не зависав під час запиту погоди)
+import aiohttp
+import asyncpg
+from aiogram import Bot, Dispatcher, types, F
+from aiogram.filters import CommandStart
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from dotenv import load_dotenv
+
+# Спроба імпорту метрик та AI (Fault Tolerance)
 try:
     from groq import Groq
-    GROQ_LIB_OK = True
+    GROQ_AVAILABLE = True
 except ImportError:
-    GROQ_LIB_OK = False
+    GROQ_AVAILABLE = False
 
 try:
     from prometheus_client import start_http_server, Counter, Summary
@@ -22,47 +26,71 @@ try:
 except ImportError:
     PROMETHEUS_AVAILABLE = False
 
-# --- 2. КОНФІГ ---
-load_dotenv()
-TOKEN = os.getenv("BOT_TOKEN")
-WEATHER_KEY = os.getenv("WEATHER_API_KEY")
-AI_KEY = os.getenv("AI_KEY")
-MODEL_NAME = "llama-3.3-70b-versatile"
+# --- 1. НАЛАШТУВАННЯ ЛОГУВАННЯ (Професійний формат) ---
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - [%(levelname)s] - %(name)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
+logger = logging.getLogger(__name__)
 
-# Дані для бази (беруться з .env)
-DB_USER = os.getenv("DB_USER")
-DB_PASS = os.getenv("DB_PASSWORD")
-DB_NAME = os.getenv("POSTGRES_DB")
-DB_HOST = "db"  # Ім'я контейнера з docker-compose!
+# --- 2. КОНФІГУРАЦІЯ (Data Class pattern) ---
+@dataclass
+class Config:
+    token: str
+    weather_key: Optional[str]
+    ai_key: Optional[str]
+    db_user: str
+    db_pass: str
+    db_name: str
+    db_host: str
 
-# --- 3. МЕТРИКИ ---
-if PROMETHEUS_AVAILABLE:
-    COMMAND_COUNTER = Counter('bot_commands_total', 'Total commands', ['command_type'])
-    ERROR_COUNTER = Counter('bot_errors_total', 'Total errors', ['error_type'])
-    AI_LATENCY = Summary('bot_ai_latency_seconds', 'AI processing time')
-
-# --- 4. НАЛАШТУВАННЯ AI ---
-client = None
-if GROQ_LIB_OK and AI_KEY:
-    try:
-        client = Groq(api_key=AI_KEY)
-    except Exception:
-        pass
-
-# --- 5. БАЗА ДАНИХ (ЛОГІКА) ---
-db_pool = None
-
-async def init_db():
-    global db_pool
-    # Чекаємо поки база прокинеться (10 сек)
-    await asyncio.sleep(5)
-    try:
-        db_pool = await asyncpg.create_pool(
-            user=DB_USER, password=DB_PASS, database=DB_NAME, host=DB_HOST
+    @staticmethod
+    def load_from_env() -> "Config":
+        load_dotenv()
+        token = os.getenv("BOT_TOKEN")
+        if not token:
+            logger.critical("❌ BOT_TOKEN не знайдено! Зупинка.")
+            sys.exit(1)
+        
+        return Config(
+            token=token,
+            weather_key=os.getenv("WEATHER_API_KEY"),
+            ai_key=os.getenv("AI_KEY"),
+            db_user=os.getenv("DB_USER", "postgres"),
+            db_pass=os.getenv("DB_PASSWORD", "password"),
+            db_name=os.getenv("POSTGRES_DB", "bot_db"),
+            db_host="db"  # Ім'я сервісу в Docker Compose
         )
-        # Створюємо таблицю, якщо її немає (АВТОМАТИЧНО!)
-        async with db_pool.acquire() as connection:
-            await connection.execute('''
+
+# --- 3. КЛАС ДЛЯ РОБОТИ З БД (Encapsulation) ---
+class Database:
+    def __init__(self, config: Config):
+        self.config = config
+        self.pool: Optional[asyncpg.Pool] = None
+
+    async def connect(self):
+        """Створення пулу з'єднань з ретраями"""
+        for i in range(5):
+            try:
+                self.pool = await asyncpg.create_pool(
+                    user=self.config.db_user,
+                    password=self.config.db_pass,
+                    database=self.config.db_name,
+                    host=self.config.db_host
+                )
+                await self.create_tables()
+                logger.info("✅ База даних успішно підключена.")
+                return
+            except Exception as e:
+                logger.warning(f"⚠️ Спроба {i+1}/5 підключення до БД невдала: {e}")
+                await asyncio.sleep(5)
+        logger.error("❌ Не вдалося підключитися до БД після 5 спроб.")
+
+    async def create_tables(self):
+        if not self.pool: return
+        async with self.pool.acquire() as conn:
+            await conn.execute('''
                 CREATE TABLE IF NOT EXISTS users (
                     id SERIAL PRIMARY KEY,
                     telegram_id BIGINT UNIQUE,
@@ -70,83 +98,152 @@ async def init_db():
                     first_seen TIMESTAMP DEFAULT NOW()
                 );
             ''')
-        logging.info("✅ База даних підключена і таблиця перевірена.")
-    except Exception as e:
-        logging.error(f"❌ Помилка БД: {e}")
 
-async def save_user(user: types.User):
-    if not db_pool: return
-    try:
-        async with db_pool.acquire() as connection:
-            await connection.execute('''
-                INSERT INTO users (telegram_id, username) 
-                VALUES ($1, $2) 
-                ON CONFLICT (telegram_id) DO NOTHING
-            ''', user.id, user.username or "NoName")
-    except Exception as e:
-        logging.error(f"Не вдалося зберегти юзера: {e}")
+    async def save_user(self, user: types.User):
+        if not self.pool: return
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute('''
+                    INSERT INTO users (telegram_id, username) 
+                    VALUES ($1, $2) 
+                    ON CONFLICT (telegram_id) DO NOTHING
+                ''', user.id, user.username or "NoName")
+        except Exception as e:
+            logger.error(f"DB Save Error: {e}")
 
-# --- 6. БОТ ---
-logging.basicConfig(level=logging.INFO)
-bot = Bot(token=TOKEN)
+    async def close(self):
+        if self.pool:
+            await self.pool.close()
+            logger.info("🔒 З'єднання з БД закрито.")
+
+# --- 4. МЕТРИКИ (Prometheus) ---
+class Metrics:
+    def __init__(self):
+        if PROMETHEUS_AVAILABLE:
+            self.command_counter = Counter('bot_commands_total', 'Total commands', ['command_type'])
+            self.error_counter = Counter('bot_errors_total', 'Total errors', ['error_type'])
+            self.ai_latency = Summary('bot_ai_latency_seconds', 'AI processing time')
+            start_http_server(8000)
+            logger.info("📊 Prometheus метрики доступні на порту 8000")
+
+    def track_command(self, command: str):
+        if PROMETHEUS_AVAILABLE:
+            self.command_counter.labels(command_type=command).inc()
+
+    def track_error(self, error_type: str):
+        if PROMETHEUS_AVAILABLE:
+            self.error_counter.labels(error_type=error_type).inc()
+
+# --- ІНІЦІАЛІЗАЦІЯ ---
+config = Config.load_from_env()
+db = Database(config)
+metrics = Metrics()
+bot = Bot(token=config.token)
 dp = Dispatcher()
+ai_client = Groq(api_key=config.ai_key) if (GROQ_AVAILABLE and config.ai_key) else None
 
+# Клавіатура
 kb = ReplyKeyboardMarkup(
     keyboard=[[KeyboardButton(text="🌦 Погода Брусилів")]],
-    resize_keyboard=True
+    resize_keyboard=True,
+    input_field_placeholder="Обери дію або запитай щось..."
 )
 
-@dp.message(Command("start"))
-async def cmd_start(message: types.Message):
-    await save_user(message.from_user)
-    if PROMETHEUS_AVAILABLE: COMMAND_COUNTER.labels(command_type='start').inc()
-    await message.answer(f"Привіт! Я записую тебе в базу... 📝\nГотовий до роботи!", reply_markup=kb)
+# --- 5. ХЕНДЛЕРИ ---
 
-# --- ОСЬ ТУТ Я ПОВЕРНУВ ЛОГІКУ ПОГОДИ ---
+@dp.message(CommandStart())
+async def cmd_start(message: types.Message):
+    metrics.track_command('start')
+    await db.save_user(message.from_user)
+    await message.answer(
+        f"👋 Привіт, {message.from_user.first_name}!\nЯ AI-бот з повним DevOps-обвісом.\nЗапитай мене щось або тисни кнопку.", 
+        reply_markup=kb
+    )
+
 @dp.message(F.text == "🌦 Погода Брусилів")
 async def weather_handler(message: types.Message):
-    await save_user(message.from_user)
-    if PROMETHEUS_AVAILABLE: COMMAND_COUNTER.labels(command_type='weather').inc()
+    metrics.track_command('weather')
+    await db.save_user(message.from_user)
     
+    if not config.weather_key:
+        await message.answer("⚠️ API ключ погоди не налаштовано.")
+        return
+
+    url = f"http://api.openweathermap.org/data/2.5/weather?q=Brusyliv&appid={config.weather_key}&units=metric&lang=ua"
+
+    # 🔥 SENIOR FIX: Використовуємо aiohttp замість requests
+    # requests.get() блокує весь бот, поки чекає відповіді.
+    # aiohttp робить це асинхронно.
     try:
-        url = f"http://api.openweathermap.org/data/2.5/weather?q=Brusyliv&appid={WEATHER_KEY}&units=metric&lang=ua"
-        data = requests.get(url).json()
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status != 200:
+                    await message.answer("Не вдалося отримати погоду.")
+                    return
+                data = await response.json()
+                
         temp = data["main"]["temp"]
         desc = data["weather"][0]["description"]
-        await message.answer(f"🌡 Температура зараз: {temp}°C\n☁️ {desc.capitalize()}")
+        await message.answer(f"🌡 У Брусилові зараз: {temp}°C\n☁️ {desc.capitalize()}")
+        
     except Exception as e:
-        await message.answer(f"⚠️ Помилка погоди: {e}")
+        logger.error(f"Weather API Error: {e}")
+        metrics.track_error('weather_api')
+        await message.answer("⚠️ Помилка при отриманні погоди.")
 
 @dp.message()
 async def ai_chat(message: types.Message):
-    await save_user(message.from_user)
-    if PROMETHEUS_AVAILABLE: COMMAND_COUNTER.labels(command_type='ai_chat').inc()
-    
-    if not client:
-        await message.answer("AI спить.")
+    metrics.track_command('ai_chat')
+    await db.save_user(message.from_user)
+
+    if not ai_client:
+        await message.answer("🧠 AI модуль вимкнено або не налаштовано.")
         return
 
+    processing_msg = await message.answer("⏳ Думаю...")
+    
     try:
-        chat_completion = client.chat.completions.create(
+        # Вимір часу відповіді AI для Grafana
+        start_time = asyncio.get_event_loop().time()
+        
+        # Groq виклик (він синхронний, тому запускаємо в окремому потоці, щоб не блокувати)
+        chat_completion = await asyncio.to_thread(
+            ai_client.chat.completions.create,
             messages=[
-                {"role": "system", "content": "Ти корисний помічник. Відповідай українською."},
+                {"role": "system", "content": "Ти корисний помічник. Відповідай українською лаконічно."},
                 {"role": "user", "content": message.text}
             ],
-            model=MODEL_NAME,
+            model="llama-3.3-70b-versatile",
             temperature=0.3
         )
-        await message.answer(chat_completion.choices[0].message.content)
-    except Exception as e:
-        await message.answer("Помилка AI.")
+        
+        duration = asyncio.get_event_loop().time() - start_time
+        if PROMETHEUS_AVAILABLE:
+             metrics.ai_latency.observe(duration)
 
+        response_text = chat_completion.choices[0].message.content
+        await processing_msg.edit_text(response_text)
+
+    except Exception as e:
+        logger.error(f"AI Error: {e}")
+        metrics.track_error('ai_api')
+        await processing_msg.edit_text("🤯 Щось пішло не так з AI.")
+
+# --- 6. ЗАПУСК ---
 async def main():
-    if PROMETHEUS_AVAILABLE:
-        try:
-            start_http_server(8000)
-        except: pass
+    logger.info("🚀 Запуск бота...")
     
-    await init_db()  # <--- ЗАПУСК БАЗИ
-    await dp.start_polling(bot)
+    # Підключення до БД
+    await db.connect()
+    
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await db.close()
+        await bot.session.close()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logger.info("Bot stopped!")
