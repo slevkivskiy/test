@@ -18,12 +18,13 @@
 
 ```mermaid
 graph TD
-    User((User)) -->|HTTPS| CF[Cloudflare Proxy]
+    User((Користувач)) -->|HTTPS| CF[Cloudflare Proxy]
     CF -->|SSL/443| Nginx[Nginx Reverse Proxy]
-    subgraph AWS EC2 [Docker Compose Network]
-        Nginx -->|Proxy| Bot[AI Bot (Python/Aiogram)]
-        Nginx -->|Proxy| Grafana[Grafana Dashboard]
+    
+    subgraph "AWS EC2 (Docker Compose Network)"
+        Nginx -->|Proxy| Bot["AI Bot (Python/Aiogram)"]
+        Nginx -->|Proxy| Grafana["Grafana Dashboard"]
         Bot -->|Metrics| Prom[Prometheus]
         Prom -->|Scrape| NodeExp[Node Exporter]
-        Prom -->|Alerts| Telegram[Telegram Alerts]
+        Prom -->|Alerts| TG_Alerts[Telegram Alerts]
     end
