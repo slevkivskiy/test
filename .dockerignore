@@ -1,0 +1,5 @@
+nginx/certs
+nginx/www
+__pycache__
+*.sql
+.git
