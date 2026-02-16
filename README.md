@@ -1,30 +1,29 @@
-# 🤖 AI Assistant Bot (Pet Project)
+# 🚀 AI Telegram Bot with DevOps Observability Stack
 
-![Python](https://img.shields.io/badge/Python-3.11-blue?logo=python)
-![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker)
-![AI](https://img.shields.io/badge/AI-Llama_3.3-orange)
-![Monitoring](https://img.shields.io/badge/Monitoring-Prometheus_Grafana-red)
+![Python](https://img.shields.io/badge/Python-3.11-blue?style=for-the-badge&logo=python&logoColor=white)
+![Docker](https://img.shields.io/badge/Docker-Containerized-2496ED?style=for-the-badge&logo=docker&logoColor=white)
+![AWS](https://img.shields.io/badge/AWS-EC2-232F3E?style=for-the-badge&logo=amazon-aws&logoColor=white)
+![Terraform](https://img.shields.io/badge/Terraform-IaC-7B42BC?style=for-the-badge&logo=terraform&logoColor=white)
+![Prometheus](https://img.shields.io/badge/Prometheus-Monitoring-E6522C?style=for-the-badge&logo=prometheus&logoColor=white)
+![Grafana](https://img.shields.io/badge/Grafana-Visualization-F46800?style=for-the-badge&logo=grafana&logoColor=white)
 
-Цей проект — Telegram-бот з інтеграцією штучного інтелекту (Llama 3.3 через Groq API), розгорнутий у контейнеризованому середовищі з повним стеком моніторингу.
+Цей проект — це демонстрація **Production-Ready** інфраструктури для Telegram бота.
+Реалізовано повний цикл DevOps практик: від **Infrastructure as Code (IaC)** до налаштування **SSL**, **Reverse Proxy** та системи **Alerting**.
 
-## 🚀 Функціонал
-- **AI Chat:** Спілкування з LLM Llama 3.3 (70B) українською мовою.
-- **Tools:** Отримання погоди через OpenWeatherMap API.
-- **DevOps:** Автоматичний перезапуск, логування помилок.
-- **Monitoring:** Збір метрик (RPS, Latency, Errors) через Prometheus.
+---
 
-## 🛠 Технологічний стек
-| Компонент | Технологія | Опис |
-|-----------|------------|------|
-| **Core** | Python 3.11, Aiogram 3 | Основна логіка бота (асинхронна) |
-| **AI Engine** | Groq API (Llama 3.3) | Швидка генерація відповідей |
-| **Containerization** | Docker, Docker Compose | Ізоляція середовища та залежностей |
-| **Metrics** | Prometheus | Збір технічних та бізнес-метрик |
-| **Visualization** | Grafana | Дашборди для моніторингу стану бота |
+## 🏗️ Архітектура
 
-## ⚙️ Як запустити (Local / VPS)
+Весь проект розгорнуто на хмарі **AWS (EC2)**, інфраструктура описана через **Terraform**. Трафік проходить через **Cloudflare** (CDN/WAF) та обробляється **Nginx**.
 
-### 1. Клонування репозиторію
-```bash
-git clone https://github.com/slevkivskiy/test.git
-cd test
+```mermaid
+graph TD
+    User((User)) -->|HTTPS| CF[Cloudflare Proxy]
+    CF -->|SSL/443| Nginx[Nginx Reverse Proxy]
+    subgraph AWS EC2 [Docker Compose Network]
+        Nginx -->|Proxy| Bot[AI Bot (Python/Aiogram)]
+        Nginx -->|Proxy| Grafana[Grafana Dashboard]
+        Bot -->|Metrics| Prom[Prometheus]
+        Prom -->|Scrape| NodeExp[Node Exporter]
+        Prom -->|Alerts| Telegram[Telegram Alerts]
+    end
